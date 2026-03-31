@@ -406,13 +406,13 @@ function SendPage({
       </button>
 
       {step === "confirm" && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm p-0 xs:p-0">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
           <div
             role="dialog"
             aria-modal="true"
-            className="w-full max-w-sm bg-white rounded-t-3xl p-4 xs:p-6 max-h-[85dvh] overflow-y-auto overscroll-contain mx-auto pb-[max(1rem,env(safe-area-inset-bottom,0px))]"
+            className="w-full max-w-sm bg-white rounded-3xl p-5 xs:p-6 shadow-2xl"
           >
-            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-4 xs:mb-6" />
+            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-4 xs:mb-5" />
             <h3 className="text-lg xs:text-xl font-black text-gray-900 mb-4 text-center px-1">
               {tr(t, "confirmSend")}
             </h3>
