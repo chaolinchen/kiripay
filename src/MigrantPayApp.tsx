@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 
+// ─── Types ───────────────────────────────────────────────────────────────────
+
 type Lang = "id" | "fil" | "vi" | "th" | "zh" | "en";
+type Page = "home" | "remittance" | "p2p" | "history";
 
 interface SalaryRecord {
   id: string;
@@ -11,13 +14,73 @@ interface SalaryRecord {
 
 interface RemittanceRecord {
   id: string;
+  type: "remittance";
   date: string;
   sentTWD: number;
   received: number;
   currency: string;
   flag: string;
+  countryName: string;
   status: "completed" | "processing" | "failed";
 }
+
+interface P2PRecord {
+  id: string;
+  type: "p2p";
+  date: string;
+  sentTWD: number;
+  recipientName: string;
+  recipientFlag: string;
+  note?: string;
+  status: "completed";
+}
+
+type TransactionRecord = RemittanceRecord | P2PRecord;
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const LANGUAGES: { code: Lang; label: string; flag: string }[] = [
+  { code: "id",  label: "Bahasa Indonesia", flag: "🇮🇩" },
+  { code: "fil", label: "Filipino",          flag: "🇵🇭" },
+  { code: "vi",  label: "Tiếng Việt",        flag: "🇻🇳" },
+  { code: "th",  label: "ภาษาไทย",           flag: "🇹🇭" },
+  { code: "zh",  label: "繁體中文",           flag: "🇹🇼" },
+  { code: "en",  label: "English",           flag: "🌐" },
+];
+
+const COUNTRIES = [
+  { code: "id",  name: "Indonesia",   flag: "🇮🇩", currency: "IDR", rate: 487.5 },
+  { code: "fil", name: "Philippines", flag: "🇵🇭", currency: "PHP", rate: 1.82  },
+  { code: "vi",  name: "Vietnam",     flag: "🇻🇳", currency: "VND", rate: 797.0 },
+  { code: "th",  name: "Thailand",    flag: "🇹🇭", currency: "THB", rate: 1.12  },
+];
+
+const MOCK_CONTACTS = [
+  { id: "c1", name: "Siti",    flag: "🇮🇩", last4: "8821" },
+  { id: "c2", name: "Maria",   flag: "🇵🇭", last4: "4502" },
+  { id: "c3", name: "Nguyen",  flag: "🇻🇳", last4: "3317" },
+  { id: "c4", name: "Somchai", flag: "🇹🇭", last4: "9963" },
+];
+
+const INITIAL_TRANSACTIONS: TransactionRecord[] = [
+  { id: "t1", type: "remittance", date: "2026-03-10", sentTWD: 15000, received: 7312500, currency: "IDR", flag: "🇮🇩", countryName: "Indonesia",   status: "completed"  },
+  { id: "t2", type: "p2p",        date: "2026-03-08", sentTWD: 2000,  recipientName: "Siti",    recipientFlag: "🇮🇩", note: "水電費", status: "completed" },
+  { id: "t3", type: "remittance", date: "2026-02-12", sentTWD: 12000, received: 21840,    currency: "PHP", flag: "🇵🇭", countryName: "Philippines", status: "completed"  },
+  { id: "t4", type: "p2p",        date: "2026-02-05", sentTWD: 500,   recipientName: "Maria",   recipientFlag: "🇵🇭", note: "代購",   status: "completed" },
+  { id: "t5", type: "remittance", date: "2026-01-08", sentTWD: 10000, received: 7970000,  currency: "VND", flag: "🇻🇳", countryName: "Vietnam",     status: "completed"  },
+  { id: "t6", type: "remittance", date: "2025-12-15", sentTWD: 8000,  received: 8960,     currency: "THB", flag: "🇹🇭", countryName: "Thailand",    status: "processing" },
+];
+
+const MOCK_SALARIES: SalaryRecord[] = [
+  { id: "s1", date: "2026-03-05", amount: 27470, status: "paid" },
+  { id: "s2", date: "2026-02-05", amount: 27470, status: "paid" },
+  { id: "s3", date: "2026-01-05", amount: 27470, status: "paid" },
+  { id: "s4", date: "2025-12-05", amount: 26400, status: "paid" },
+  { id: "s5", date: "2025-11-05", amount: 26400, status: "paid" },
+  { id: "s6", date: "2025-10-05", amount: 26400, status: "paid" },
+];
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 async function loadLocale(lang: Lang): Promise<Record<string, string>> {
   const res = await fetch(`/locales/${lang}.json`);
@@ -35,62 +98,10 @@ function guessBrowserLang(): Lang {
   return "en";
 }
 
-const LANGUAGES: { code: Lang; label: string; flag: string; currency: string; rate: number }[] = [
-  { code: "id", label: "Bahasa Indonesia", flag: "🇮🇩", currency: "IDR", rate: 487.5 },
-  { code: "fil", label: "Filipino", flag: "🇵🇭", currency: "PHP", rate: 1.82 },
-  { code: "vi", label: "Tiếng Việt", flag: "🇻🇳", currency: "VND", rate: 797.0 },
-  { code: "th", label: "ภาษาไทย", flag: "🇹🇭", currency: "THB", rate: 1.12 },
-  { code: "zh", label: "繁體中文", flag: "🇹🇼", currency: "TWD", rate: 1 },
-  { code: "en", label: "English", flag: "🌐", currency: "USD", rate: 0.031 },
-];
-
-const mockSalaries: SalaryRecord[] = [
-  { id: "s1", date: "2026-03-05", amount: 27470, status: "paid" },
-  { id: "s2", date: "2026-02-05", amount: 27470, status: "paid" },
-  { id: "s3", date: "2026-01-05", amount: 27470, status: "paid" },
-  { id: "s4", date: "2025-12-05", amount: 26400, status: "paid" },
-  { id: "s5", date: "2025-11-05", amount: 26400, status: "paid" },
-  { id: "s6", date: "2025-10-05", amount: 26400, status: "paid" },
-];
-
-const MOCK_REMITTANCES_BY_LANG: Record<Lang, RemittanceRecord[]> = {
-  id:  [
-    { id: "r1", date: "2026-03-10", sentTWD: 15000, received: 7312500, currency: "IDR", flag: "🇮🇩", status: "completed" },
-    { id: "r2", date: "2026-02-12", sentTWD: 12000, received: 5850000, currency: "IDR", flag: "🇮🇩", status: "completed" },
-    { id: "r3", date: "2026-01-08", sentTWD: 10000, received: 4875000, currency: "IDR", flag: "🇮🇩", status: "completed" },
-    { id: "r4", date: "2025-12-15", sentTWD: 8000, received: 3900000, currency: "IDR", flag: "🇮🇩", status: "processing" },
-  ],
-  fil: [
-    { id: "r1", date: "2026-03-10", sentTWD: 15000, received: 27300, currency: "PHP", flag: "🇵🇭", status: "completed" },
-    { id: "r2", date: "2026-02-12", sentTWD: 12000, received: 21840, currency: "PHP", flag: "🇵🇭", status: "completed" },
-    { id: "r3", date: "2026-01-08", sentTWD: 10000, received: 18200, currency: "PHP", flag: "🇵🇭", status: "completed" },
-    { id: "r4", date: "2025-12-15", sentTWD: 8000, received: 14560, currency: "PHP", flag: "🇵🇭", status: "processing" },
-  ],
-  vi:  [
-    { id: "r1", date: "2026-03-10", sentTWD: 15000, received: 11955000, currency: "VND", flag: "🇻🇳", status: "completed" },
-    { id: "r2", date: "2026-02-12", sentTWD: 12000, received: 9564000, currency: "VND", flag: "🇻🇳", status: "completed" },
-    { id: "r3", date: "2026-01-08", sentTWD: 10000, received: 7970000, currency: "VND", flag: "🇻🇳", status: "completed" },
-    { id: "r4", date: "2025-12-15", sentTWD: 8000, received: 6376000, currency: "VND", flag: "🇻🇳", status: "processing" },
-  ],
-  th:  [
-    { id: "r1", date: "2026-03-10", sentTWD: 15000, received: 16800, currency: "THB", flag: "🇹🇭", status: "completed" },
-    { id: "r2", date: "2026-02-12", sentTWD: 12000, received: 13440, currency: "THB", flag: "🇹🇭", status: "completed" },
-    { id: "r3", date: "2026-01-08", sentTWD: 10000, received: 11200, currency: "THB", flag: "🇹🇭", status: "completed" },
-    { id: "r4", date: "2025-12-15", sentTWD: 8000, received: 8960, currency: "THB", flag: "🇹🇭", status: "processing" },
-  ],
-  zh:  [
-    { id: "r1", date: "2026-03-10", sentTWD: 15000, received: 15000, currency: "TWD", flag: "🇹🇼", status: "completed" },
-    { id: "r2", date: "2026-02-12", sentTWD: 12000, received: 12000, currency: "TWD", flag: "🇹🇼", status: "completed" },
-    { id: "r3", date: "2026-01-08", sentTWD: 10000, received: 10000, currency: "TWD", flag: "🇹🇼", status: "completed" },
-    { id: "r4", date: "2025-12-15", sentTWD: 8000, received: 8000, currency: "TWD", flag: "🇹🇼", status: "processing" },
-  ],
-  en:  [
-    { id: "r1", date: "2026-03-10", sentTWD: 15000, received: 465, currency: "USD", flag: "🌐", status: "completed" },
-    { id: "r2", date: "2026-02-12", sentTWD: 12000, received: 372, currency: "USD", flag: "🌐", status: "completed" },
-    { id: "r3", date: "2026-01-08", sentTWD: 10000, received: 310, currency: "USD", flag: "🌐", status: "completed" },
-    { id: "r4", date: "2025-12-15", sentTWD: 8000, received: 248, currency: "USD", flag: "🌐", status: "processing" },
-  ],
-};
+function tr(t: Record<string, string> | null, key: string): string {
+  if (!t) return "";
+  return t[key] ?? key;
+}
 
 function calcFee(amount: number): number {
   if (amount <= 0) return 0;
@@ -98,10 +109,17 @@ function calcFee(amount: number): number {
   return Math.max(50, Math.round(amount * rate));
 }
 
-function tr(t: Record<string, string> | null, key: string): string {
-  if (!t) return "";
-  return t[key] ?? key;
+function calcBalance(transactions: TransactionRecord[]): number {
+  const now = new Date();
+  const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const latestSalary = MOCK_SALARIES[0]?.amount ?? 0;
+  const monthSent = transactions
+    .filter((r) => r.status === "completed" && r.date.startsWith(thisMonth))
+    .reduce((sum, r) => sum + r.sentTWD, 0);
+  return latestSalary - monthSent;
 }
+
+// ─── LanguageSelector ─────────────────────────────────────────────────────────
 
 function LanguageSelector({
   onSelect,
@@ -112,31 +130,28 @@ function LanguageSelector({
 }) {
   return (
     <div
-      className="min-h-[100dvh] flex flex-col items-center justify-center px-4 pt-safe-top pb-6 sm:px-6"
-      style={{
-        background: "linear-gradient(160deg, #0F2952 0%, #1A3A6B 50%, #0D5C4A 100%)",
-      }}
+      className="min-h-[100dvh] flex flex-col items-center justify-center px-4 pt-safe-top pb-6"
+      style={{ background: "linear-gradient(160deg, #0F2952 0%, #1A3A6B 50%, #0D5C4A 100%)" }}
     >
-      <div className="text-center mb-6 xs:mb-10 max-w-[min(100%,24rem)]">
-        <div className="text-4xl xs:text-5xl mb-2 xs:mb-3">🌏</div>
-        <h1 className="text-3xl xs:text-4xl font-black text-white tracking-tight">
+      <div className="text-center mb-8 max-w-xs">
+        <div className="text-5xl mb-3">🌏</div>
+        <h1 className="text-4xl font-black text-white tracking-tight">
           {tr(previewT, "appName") || "KiriPay"}
         </h1>
-        <p className="text-blue-200 mt-2 text-xs xs:text-sm font-medium leading-snug px-1 break-words">
+        <p className="text-blue-200 mt-2 text-sm font-medium">
           {tr(previewT, "languageChooserHint") || "Select your language"}
         </p>
       </div>
-      <div className="w-full max-w-sm space-y-2.5 xs:space-y-3">
+      <div className="w-full max-w-sm space-y-3">
         {LANGUAGES.map((l) => (
           <button
             key={l.code}
             type="button"
             onClick={() => onSelect(l.code)}
-            className="w-full flex items-center gap-3 xs:gap-4 bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl px-4 py-3.5 xs:px-5 xs:py-4 text-white hover:bg-white/20 active:scale-[0.98] transition-all duration-150 min-h-[3.25rem]"
+            className="w-full flex items-center gap-4 bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl px-5 py-4 text-white hover:bg-white/20 active:scale-[0.98] transition-all duration-150"
           >
-            <span className="text-xl xs:text-2xl shrink-0">{l.flag}</span>
-            <span className="font-semibold text-sm xs:text-base flex-1 text-left leading-tight">{l.label}</span>
-            <span className="text-blue-200 text-xs font-mono shrink-0">{l.currency}</span>
+            <span className="text-2xl shrink-0">{l.flag}</span>
+            <span className="font-semibold text-base flex-1 text-left">{l.label}</span>
           </button>
         ))}
       </div>
@@ -144,36 +159,27 @@ function LanguageSelector({
   );
 }
 
-function NavBar({
-  t,
-  page,
-  setPage,
-}: {
-  t: Record<string, string>;
-  page: string;
-  setPage: (p: string) => void;
-}) {
-  const tabs = [
-    { id: "home", icon: "🏠", label: tr(t, "home") },
-    { id: "send", icon: "💸", label: tr(t, "send") },
+// ─── NavBar ───────────────────────────────────────────────────────────────────
+
+function NavBar({ t, page, setPage }: { t: Record<string, string>; page: Page; setPage: (p: Page) => void }) {
+  const tabs: { id: Page; icon: string; label: string }[] = [
+    { id: "home",    icon: "🏠", label: tr(t, "home") },
     { id: "history", icon: "📋", label: tr(t, "history") },
   ];
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-100 shadow-2xl px-1 xs:px-4 pb-nav-safe">
-      <div className="max-w-sm mx-auto flex justify-between xs:justify-around">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-100 shadow-2xl pb-safe-bottom">
+      <div className="max-w-sm mx-auto flex">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
             onClick={() => setPage(tab.id)}
-            className={`flex flex-col items-center py-2.5 xs:py-3 px-2 xs:px-5 transition-all duration-200 min-w-0 flex-1 xs:flex-none ${
+            className={`flex flex-col items-center py-3 flex-1 transition-all duration-200 ${
               page === tab.id ? "text-blue-700" : "text-gray-400"
             }`}
           >
-            <span className="text-lg xs:text-xl">{tab.icon}</span>
-            <span className="text-[10px] xs:text-xs font-semibold mt-0.5 text-center leading-tight max-w-[5.5rem] xs:max-w-none truncate xs:whitespace-normal">
-              {tab.label}
-            </span>
+            <span className="text-xl">{tab.icon}</span>
+            <span className="text-xs font-semibold mt-0.5">{tab.label}</span>
             {page === tab.id && <div className="w-1 h-1 rounded-full bg-blue-700 mt-1" />}
           </button>
         ))}
@@ -182,137 +188,194 @@ function NavBar({
   );
 }
 
+// ─── HomePage ─────────────────────────────────────────────────────────────────
+
 function HomePage({
   t,
-  langInfo,
-  remittances,
+  transactions,
+  onGoRemittance,
+  onGoP2P,
 }: {
   t: Record<string, string>;
-  langInfo: (typeof LANGUAGES)[0];
-  remittances: RemittanceRecord[];
+  transactions: TransactionRecord[];
+  onGoRemittance: () => void;
+  onGoP2P: () => void;
 }) {
+  const balance = calcBalance(transactions);
   const now = new Date();
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const latestSalary = mockSalaries[0]?.amount ?? 0;
-  const monthSent = remittances
+  const monthSent = transactions
     .filter((r) => r.status === "completed" && r.date.startsWith(thisMonth))
     .reduce((sum, r) => sum + r.sentTWD, 0);
-  const balance = latestSalary - monthSent;
+  const recent = transactions.slice(0, 3);
 
   return (
-    <div className="pb-24 px-3 xs:px-4 pt-4 xs:pt-6 max-w-sm mx-auto w-full min-w-0">
-      <div className="flex flex-wrap items-start justify-between gap-3 mb-5 xs:mb-6">
-        <div className="min-w-0">
-          <p className="text-gray-500 text-xs xs:text-sm truncate">{tr(t, "tagline")}</p>
-          <h2 className="text-xl xs:text-2xl font-black text-gray-900 break-words">
-            {tr(t, "appName")} {langInfo.flag}
-          </h2>
-        </div>
-        <div className="w-9 h-9 xs:w-10 xs:h-10 rounded-full bg-blue-700 flex items-center justify-center text-white font-bold text-base xs:text-lg shadow-lg shrink-0">
-          A
-        </div>
-      </div>
-
+    <div className="pb-24 px-4 pt-5 max-w-sm mx-auto w-full">
+      {/* Balance Card */}
       <div
-        className="rounded-3xl p-4 xs:p-6 mb-4 shadow-xl relative overflow-hidden"
-        style={{
-          background: "linear-gradient(135deg, #1A3A6B 0%, #2563EB 60%, #10B981 100%)",
-        }}
+        className="rounded-3xl p-5 mb-4 shadow-xl relative overflow-hidden"
+        style={{ background: "linear-gradient(135deg, #1A3A6B 0%, #2563EB 60%, #10B981 100%)" }}
       >
-        <div className="absolute top-0 right-0 w-32 h-32 xs:w-40 xs:h-40 rounded-full opacity-10 bg-white -mr-8 -mt-8 xs:-mr-10 xs:-mt-10" />
-        <p className="text-blue-200 text-xs xs:text-sm font-medium mb-1">{tr(t, "balance")}</p>
-        <p className="text-white text-3xl xs:text-4xl font-black tracking-tight break-all">
-          NT${balance.toLocaleString()}
-        </p>
-        <div className="flex flex-wrap gap-4 xs:gap-6 mt-4 xs:mt-5">
-          <div className="min-w-0">
-            <p className="text-blue-300 text-[10px] xs:text-xs">{tr(t, "salary")}</p>
-            <p className="text-white font-bold text-base xs:text-lg break-all">NT${latestSalary.toLocaleString()}</p>
+        <div className="absolute top-0 right-0 w-40 h-40 rounded-full opacity-10 bg-white -mr-10 -mt-10" />
+        <p className="text-blue-200 text-xs font-medium mb-1">{tr(t, "balance")}</p>
+        <p className="text-white text-4xl font-black tracking-tight">NT${balance.toLocaleString()}</p>
+        <div className="flex gap-6 mt-4">
+          <div>
+            <p className="text-blue-300 text-xs">{tr(t, "salary")}</p>
+            <p className="text-white font-bold text-lg">NT${(MOCK_SALARIES[0]?.amount ?? 0).toLocaleString()}</p>
           </div>
-          <div className="min-w-0">
-            <p className="text-blue-300 text-[10px] xs:text-xs">{tr(t, "totalSent")}</p>
-            <p className="text-white font-bold text-base xs:text-lg break-all">
-              NT${monthSent.toLocaleString()}
-            </p>
+          <div>
+            <p className="text-blue-300 text-xs">{tr(t, "totalSent")}</p>
+            <p className="text-white font-bold text-lg">NT${monthSent.toLocaleString()}</p>
           </div>
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-2 mb-5 xs:mb-6 max-w-full">
-        <span className="text-emerald-600 text-[10px] xs:text-xs font-semibold leading-snug break-words">
-          {tr(t, "exchangeRate")}: 1 TWD = {langInfo.rate} {langInfo.currency}
-        </span>
-        <span className="text-emerald-500 text-xs shrink-0">●</span>
-        <span className="text-emerald-600 text-[10px] xs:text-xs shrink-0">{tr(t, "live")}</span>
+      {/* Exchange Rate Bar */}
+      <div className="flex gap-2 overflow-x-auto pb-1 mb-5 scrollbar-hide">
+        {COUNTRIES.map((c) => (
+          <div key={c.code} className="flex-shrink-0 bg-white rounded-2xl px-3 py-2 border border-gray-100 shadow-sm">
+            <p className="text-gray-400 text-[10px]">{c.flag} {c.currency}</p>
+            <p className="text-gray-800 text-xs font-bold">{c.rate}</p>
+          </div>
+        ))}
+        <div className="flex-shrink-0 flex items-center px-2">
+          <span className="text-emerald-500 text-[10px] font-semibold">{tr(t, "live")} ●</span>
+        </div>
       </div>
 
-      <h3 className="text-gray-800 font-bold text-sm xs:text-base mb-3">{tr(t, "salaryHistory")}</h3>
-      <div className="space-y-2 mb-6">
-        {mockSalaries.slice(0, 4).map((s) => (
-          <div
-            key={s.id}
-            className="flex items-center justify-between gap-2 bg-white rounded-2xl px-3 py-2.5 xs:px-4 xs:py-3 shadow-sm border border-gray-100"
-          >
-            <div className="flex items-center gap-2 xs:gap-3 min-w-0">
-              <div className="w-8 h-8 xs:w-9 xs:h-9 rounded-full bg-blue-100 flex items-center justify-center text-sm xs:text-base shrink-0">
-                💰
-              </div>
-              <div className="min-w-0">
-                <p className="text-gray-800 font-semibold text-xs xs:text-sm">
-                  NT${s.amount.toLocaleString()}
-                </p>
-                <p className="text-gray-400 text-[10px] xs:text-xs">{s.date}</p>
-              </div>
-            </div>
-            <span
-              className={`text-[10px] xs:text-xs font-bold px-2 py-1 xs:px-3 xs:py-1 rounded-full shrink-0 whitespace-nowrap ${
-                s.status === "paid" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
-              }`}
-            >
-              {s.status === "paid" ? tr(t, "status_paid") : tr(t, "status_pending")}
-            </span>
-          </div>
+      {/* Action Buttons */}
+      <div className="grid grid-cols-2 gap-3 mb-5">
+        <button
+          type="button"
+          onClick={onGoRemittance}
+          className="flex flex-col items-start p-4 bg-blue-700 rounded-2xl shadow-lg active:scale-[0.98] transition-all"
+        >
+          <span className="text-2xl mb-2">🏠</span>
+          <p className="text-white font-black text-sm leading-tight">{tr(t, "remitHome")}</p>
+          <p className="text-blue-200 text-[10px] mt-1 leading-tight">{tr(t, "remitHomeDesc")}</p>
+        </button>
+        <button
+          type="button"
+          onClick={onGoP2P}
+          className="flex flex-col items-start p-4 bg-orange-500 rounded-2xl shadow-lg active:scale-[0.98] transition-all"
+        >
+          <span className="text-2xl mb-2">🤝</span>
+          <p className="text-white font-black text-sm leading-tight">{tr(t, "transferFriend")}</p>
+          <p className="text-orange-100 text-[10px] mt-1 leading-tight">{tr(t, "transferFriendDesc")}</p>
+        </button>
+      </div>
+
+      {/* Recent Transactions */}
+      <h3 className="text-gray-800 font-bold text-sm mb-3">{tr(t, "recentTransactions")}</h3>
+      <div className="space-y-2">
+        {recent.length === 0 && (
+          <p className="text-gray-400 text-sm text-center py-4">{tr(t, "noTransactions")}</p>
+        )}
+        {recent.map((r) => (
+          <TransactionRow key={r.id} tx={r} t={t} />
         ))}
       </div>
     </div>
   );
 }
 
-function SendPage({
+// ─── TransactionRow (shared) ──────────────────────────────────────────────────
+
+function TransactionRow({ tx, t }: { tx: TransactionRecord; t: Record<string, string> }) {
+  if (tx.type === "remittance") {
+    return (
+      <div className="bg-white rounded-2xl px-4 py-3 border border-gray-100 shadow-sm">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-base shrink-0">
+              🏠
+            </div>
+            <div className="min-w-0">
+              <p className="font-bold text-gray-800 text-sm">{tx.flag} {tx.countryName}</p>
+              <p className="text-gray-400 text-xs">NT${tx.sentTWD.toLocaleString()} · {tx.date}</p>
+            </div>
+          </div>
+          <StatusBadge status={tx.status} t={t} />
+        </div>
+        <div className="mt-2 bg-gray-50 rounded-xl px-3 py-1.5 flex justify-between">
+          <span className="text-gray-400 text-xs">{tr(t, "youReceive")}</span>
+          <span className="font-bold text-gray-700 text-xs">{tx.received.toLocaleString()} {tx.currency}</span>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="bg-white rounded-2xl px-4 py-3 border border-gray-100 shadow-sm">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-9 h-9 rounded-full bg-orange-100 flex items-center justify-center text-base shrink-0">
+            🤝
+          </div>
+          <div className="min-w-0">
+            <p className="font-bold text-gray-800 text-sm">{tx.recipientFlag} {tx.recipientName}</p>
+            <p className="text-gray-400 text-xs">
+              NT${tx.sentTWD.toLocaleString()} · {tx.date}
+              {tx.note ? ` · ${tx.note}` : ""}
+            </p>
+          </div>
+        </div>
+        <StatusBadge status={tx.status} t={t} />
+      </div>
+    </div>
+  );
+}
+
+function StatusBadge({ status, t }: { status: string; t: Record<string, string> }) {
+  const map: Record<string, string> = {
+    completed:  "bg-emerald-100 text-emerald-700",
+    processing: "bg-amber-100 text-amber-700",
+    failed:     "bg-red-100 text-red-700",
+  };
+  const labels: Record<string, string> = {
+    completed:  tr(t, "status_completed"),
+    processing: tr(t, "status_processing"),
+    failed:     tr(t, "status_failed"),
+  };
+  return (
+    <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full shrink-0 whitespace-nowrap ${map[status] ?? ""}`}>
+      {labels[status] ?? status}
+    </span>
+  );
+}
+
+// ─── RemittancePage (Flow A) ──────────────────────────────────────────────────
+
+function RemittancePage({
   t,
-  langInfo,
-  onSuccess,
-  onAddRemittance,
+  onBack,
+  onDone,
 }: {
   t: Record<string, string>;
-  langInfo: (typeof LANGUAGES)[0];
-  onSuccess: () => void;
-  onAddRemittance: (r: RemittanceRecord) => void;
+  onBack: () => void;
+  onDone: (record: RemittanceRecord) => void;
 }) {
+  const [step, setStep] = useState<"country" | "amount" | "confirm" | "success">("country");
+  const [country, setCountry] = useState<(typeof COUNTRIES)[0] | null>(null);
   const [amount, setAmount] = useState("");
-  const [step, setStep] = useState<"input" | "confirm" | "success">("input");
 
   const numAmount = parseFloat(amount) || 0;
   const fee = calcFee(numAmount);
-  const netAmount = numAmount - fee;
-  const received = Math.round(netAmount * langInfo.rate);
+  const received = country ? Math.round((numAmount - fee) * country.rate) : 0;
 
-  if (step === "success") {
+  if (step === "success" && country) {
     return (
-      <div className="min-h-[100dvh] flex flex-col items-center justify-center px-4 pt-safe-top pb-8 text-center bg-gradient-to-b from-emerald-50 to-white">
-        <div className="text-5xl xs:text-7xl mb-4 xs:mb-6 animate-bounce">✅</div>
-        <h2 className="text-2xl xs:text-3xl font-black text-gray-900 mb-2 px-1">{tr(t, "success")}</h2>
-        <p className="text-gray-500 mb-2 text-sm xs:text-base break-words px-2">
-          NT${numAmount.toLocaleString()} → {received.toLocaleString()} {langInfo.currency}
-        </p>
-        <p className="text-emerald-600 font-semibold text-xs xs:text-sm mb-6 xs:mb-8 px-2">
-          {tr(t, "estimatedArrival")}: {tr(t, "days")}
-        </p>
-        <button
-          type="button"
-          onClick={onSuccess}
-          className="bg-blue-700 text-white font-bold text-sm xs:text-base rounded-2xl px-8 py-3.5 xs:px-10 xs:py-4 shadow-lg active:scale-[0.98] transition-all"
-        >
+      <div className="min-h-[100dvh] flex flex-col items-center justify-center px-4 text-center bg-gradient-to-b from-emerald-50 to-white">
+        <div className="text-7xl mb-6 animate-bounce">✅</div>
+        <h2 className="text-3xl font-black text-gray-900 mb-2">{tr(t, "success")}</h2>
+        <p className="text-gray-500 mb-1">NT${numAmount.toLocaleString()} → {received.toLocaleString()} {country.currency}</p>
+        <p className="text-emerald-600 font-semibold text-sm mb-8">{tr(t, "estimatedArrival")}: {tr(t, "days")}</p>
+        <button type="button" onClick={onDone.bind(null, {
+          id: `t-${Date.now()}`, type: "remittance",
+          date: new Date().toISOString().slice(0, 10),
+          sentTWD: numAmount, received, currency: country.currency,
+          flag: country.flag, countryName: country.name, status: "completed",
+        })} className="bg-blue-700 text-white font-bold rounded-2xl px-10 py-4 shadow-lg">
           {tr(t, "home")} ←
         </button>
       </div>
@@ -320,143 +383,132 @@ function SendPage({
   }
 
   return (
-    <div className="pb-28 px-3 xs:px-4 pt-4 xs:pt-6 max-w-sm mx-auto w-full min-w-0">
-      <h2 className="text-xl xs:text-2xl font-black text-gray-900 mb-5 xs:mb-6 break-words">
-        {tr(t, "send")} {langInfo.flag}
-      </h2>
-
-      <div className="bg-white rounded-2xl p-3.5 xs:p-4 mb-3.5 xs:mb-4 border border-gray-100 shadow-sm">
-        <p className="text-gray-500 text-[10px] xs:text-xs font-semibold mb-2">{tr(t, "chooseRecipient")}</p>
-        <div className="flex items-center gap-2 xs:gap-3">
-          <div className="w-9 h-9 xs:w-10 xs:h-10 rounded-full bg-gradient-to-br from-orange-400 to-pink-500 flex items-center justify-center text-white text-sm font-bold shrink-0">
-            {langInfo.flag}
-          </div>
-          <div className="min-w-0">
-            <p className="font-bold text-gray-800 text-xs xs:text-sm break-words">
-              {tr(t, "recipientFamily")} · {langInfo.currency}
-            </p>
-            <p className="text-gray-400 text-[10px] xs:text-xs truncate">{langInfo.label}</p>
-          </div>
-        </div>
+    <div className="min-h-[100dvh] bg-gray-50">
+      {/* Header */}
+      <div className="bg-white border-b border-gray-100 px-4 py-4 flex items-center gap-3 max-w-sm mx-auto">
+        <button type="button" onClick={onBack} className="text-gray-500 text-xl">←</button>
+        <h2 className="font-black text-gray-900 text-lg">{tr(t, "remitHome")}</h2>
       </div>
 
-      <div className="bg-white rounded-2xl p-4 xs:p-5 mb-3.5 xs:mb-4 border border-gray-100 shadow-sm">
-        <p className="text-gray-500 text-[10px] xs:text-xs font-semibold mb-3">{tr(t, "amount")}</p>
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-gray-400 font-bold text-lg xs:text-xl shrink-0">NT$</span>
-          <input
-            type="number"
-            inputMode="decimal"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="0"
-            className="text-2xl xs:text-3xl font-black text-blue-800 w-full min-w-0 outline-none placeholder-gray-200 bg-transparent"
-          />
+      <div className="px-4 pt-5 pb-32 max-w-sm mx-auto space-y-4">
+        {/* Step 1: Country */}
+        <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+          <p className="text-gray-500 text-xs font-semibold mb-3">{tr(t, "selectCountry")}</p>
+          <div className="grid grid-cols-2 gap-2">
+            {COUNTRIES.map((c) => (
+              <button
+                key={c.code}
+                type="button"
+                onClick={() => { setCountry(c); setStep("amount"); }}
+                className={`flex items-center gap-2 p-3 rounded-xl border-2 transition-all ${
+                  country?.code === c.code
+                    ? "border-blue-600 bg-blue-50"
+                    : "border-gray-100 hover:border-blue-200"
+                }`}
+              >
+                <span className="text-xl">{c.flag}</span>
+                <div className="text-left min-w-0">
+                  <p className="font-bold text-gray-800 text-xs truncate">{c.name}</p>
+                  <p className="text-gray-400 text-[10px]">{c.currency}</p>
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="mt-3 grid grid-cols-2 xs:flex gap-2">
-          {[5000, 10000, 15000, 20000].map((v) => (
-            <button
-              key={v}
-              type="button"
-              onClick={() => setAmount(String(v))}
-              className="flex-1 text-[10px] xs:text-xs font-semibold bg-blue-50 text-blue-700 rounded-xl py-2 hover:bg-blue-100 active:scale-[0.98] transition-all"
-            >
-              {v.toLocaleString()}
-            </button>
-          ))}
-        </div>
+
+        {/* Step 2: Amount (shown after country selected) */}
+        {country && (
+          <>
+            <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+              <p className="text-gray-500 text-xs font-semibold mb-3">{tr(t, "amount")}</p>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400 font-bold text-xl">NT$</span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="0"
+                  className="text-3xl font-black text-blue-800 w-full outline-none placeholder-gray-200 bg-transparent"
+                />
+              </div>
+              <div className="grid grid-cols-4 gap-2 mt-3">
+                {[5000, 10000, 15000, 20000].map((v) => (
+                  <button key={v} type="button" onClick={() => setAmount(String(v))}
+                    className="text-xs font-semibold bg-blue-50 text-blue-700 rounded-xl py-2 hover:bg-blue-100 active:scale-[0.98] transition-all">
+                    {v.toLocaleString()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {numAmount > 0 && (
+              <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm space-y-3">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">{tr(t, "fee")}</span>
+                  <span className="font-semibold text-gray-700">NT${fee.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">{tr(t, "exchangeRate")}</span>
+                  <span className="font-semibold text-gray-700">1 TWD = {country.rate} {country.currency}</span>
+                </div>
+                <div className="border-t border-gray-100 pt-3 flex justify-between">
+                  <span className="font-bold text-gray-800 text-sm">{tr(t, "youReceive")}</span>
+                  <span className="font-black text-emerald-600 text-lg">{received.toLocaleString()} {country.currency}</span>
+                </div>
+                <div className="bg-blue-50 rounded-xl px-3 py-2 flex items-center gap-2">
+                  <span className="text-blue-500">🕐</span>
+                  <span className="text-blue-700 text-xs font-semibold">{tr(t, "estimatedArrival")}: {tr(t, "days")}</span>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
-      {numAmount > 0 && (
-        <div className="bg-white rounded-2xl p-4 xs:p-5 mb-5 xs:mb-6 border border-gray-100 shadow-sm space-y-3">
-          <div className="flex justify-between gap-2 text-xs xs:text-sm">
-            <span className="text-gray-500 shrink-0">{tr(t, "fee")}</span>
-            <span className="font-semibold text-gray-700 text-right break-all">NT${fee.toLocaleString()}</span>
-          </div>
-          <div className="flex justify-between gap-2 text-xs xs:text-sm">
-            <span className="text-gray-500 shrink-0">{tr(t, "exchangeRate")}</span>
-            <span className="font-semibold text-gray-700 text-right break-all">
-              1 TWD = {langInfo.rate} {langInfo.currency}
-            </span>
-          </div>
-          <div className="border-t border-gray-100 pt-3 flex justify-between gap-2">
-            <span className="font-bold text-gray-800 text-xs xs:text-sm shrink-0">{tr(t, "youReceive")}</span>
-            <span className="font-black text-emerald-600 text-base xs:text-lg text-right break-all">
-              {received.toLocaleString()} {langInfo.currency}
-            </span>
-          </div>
-          <div className="bg-blue-50 rounded-xl px-3 py-2 flex items-start gap-2">
-            <span className="text-blue-500 shrink-0">🕐</span>
-            <span className="text-blue-700 text-[10px] xs:text-xs font-semibold leading-snug">
-              {tr(t, "estimatedArrival")}: {tr(t, "days")}
-            </span>
-          </div>
+      {/* Sticky CTA */}
+      {country && (
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 p-4 max-w-sm mx-auto">
+          <button
+            type="button"
+            onClick={() => numAmount > 0 && setStep("confirm")}
+            disabled={numAmount <= 0}
+            className={`w-full py-4 rounded-2xl font-black text-lg shadow-lg transition-all active:scale-[0.98] ${
+              numAmount > 0 ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-300 cursor-not-allowed"
+            }`}
+          >
+            {tr(t, "confirmSend")} →
+          </button>
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={() => numAmount > 0 && setStep("confirm")}
-        disabled={numAmount <= 0}
-        className={`w-full py-3.5 xs:py-4 rounded-2xl font-black text-base xs:text-lg shadow-lg transition-all active:scale-[0.98] ${
-          numAmount > 0 ? "bg-blue-700 text-white hover:bg-blue-800" : "bg-gray-100 text-gray-300 cursor-not-allowed"
-        }`}
-      >
-        {tr(t, "confirmSend")} →
-      </button>
-
-      {step === "confirm" && (
+      {/* Confirm Modal */}
+      {step === "confirm" && country && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
-          <div
-            role="dialog"
-            aria-modal="true"
-            className="w-full max-w-sm bg-white rounded-3xl p-5 xs:p-6 shadow-2xl"
-          >
-            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-4 xs:mb-5" />
-            <h3 className="text-lg xs:text-xl font-black text-gray-900 mb-4 text-center px-1">
-              {tr(t, "confirmSend")}
-            </h3>
-            <div className="space-y-3 mb-5 xs:mb-6">
-              <div className="flex justify-between gap-2 text-xs xs:text-sm">
+          <div role="dialog" aria-modal="true" className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl">
+            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-5" />
+            <h3 className="text-xl font-black text-gray-900 mb-4 text-center">{tr(t, "confirmSend")}</h3>
+            <div className="space-y-3 mb-6">
+              <div className="flex justify-between text-sm">
                 <span className="text-gray-500">{tr(t, "confirmModalSentLabel")}</span>
-                <span className="font-bold text-right break-all">NT${numAmount.toLocaleString()}</span>
+                <span className="font-bold">NT${numAmount.toLocaleString()}</span>
               </div>
-              <div className="flex justify-between gap-2 text-xs xs:text-sm">
+              <div className="flex justify-between text-sm">
                 <span className="text-gray-500">{tr(t, "fee")}</span>
-                <span className="font-bold text-right break-all">NT${fee.toLocaleString()}</span>
+                <span className="font-bold">NT${fee.toLocaleString()}</span>
               </div>
-              <div className="flex justify-between border-t border-gray-100 pt-3 gap-2">
-                <span className="font-bold text-gray-800 text-xs xs:text-sm">{tr(t, "youReceive")}</span>
-                <span className="font-black text-emerald-600 text-right break-all">
-                  {received.toLocaleString()} {langInfo.currency}
-                </span>
+              <div className="border-t border-gray-100 pt-3 flex justify-between">
+                <span className="font-bold text-gray-800 text-sm">{country.flag} {tr(t, "youReceive")}</span>
+                <span className="font-black text-emerald-600">{received.toLocaleString()} {country.currency}</span>
               </div>
             </div>
-            <div className="flex gap-2 xs:gap-3 pb-1">
-              <button
-                type="button"
-                onClick={() => setStep("input")}
-                className="flex-1 py-2.5 xs:py-3 rounded-2xl border-2 border-gray-200 text-gray-600 font-bold text-sm"
-              >
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setStep("amount")}
+                className="flex-1 py-3 rounded-2xl border-2 border-gray-200 text-gray-600 font-bold text-sm">
                 {tr(t, "back")}
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const today = new Date().toISOString().slice(0, 10);
-                  onAddRemittance({
-                    id: `r-${Date.now()}`,
-                    date: today,
-                    sentTWD: numAmount,
-                    received,
-                    currency: langInfo.currency,
-                    flag: langInfo.flag,
-                    status: "completed",
-                  });
-                  setStep("success");
-                }}
-                className="flex-1 py-2.5 xs:py-3 rounded-2xl bg-blue-700 text-white font-bold shadow-lg text-sm"
-              >
+              <button type="button" onClick={() => setStep("success")}
+                className="flex-1 py-3 rounded-2xl bg-blue-700 text-white font-bold shadow-lg text-sm">
                 ✓ {tr(t, "confirmSend")}
               </button>
             </div>
@@ -467,89 +519,256 @@ function SendPage({
   );
 }
 
-function HistoryPage({ t, remittances }: { t: Record<string, string>; remittances: RemittanceRecord[] }) {
-  const [tab, setTab] = useState<"remittance" | "salary">("remittance");
+// ─── P2PPage (Flow B) ─────────────────────────────────────────────────────────
+
+function P2PPage({
+  t,
+  onBack,
+  onDone,
+}: {
+  t: Record<string, string>;
+  onBack: () => void;
+  onDone: (record: P2PRecord) => void;
+}) {
+  const [contact, setContact] = useState<(typeof MOCK_CONTACTS)[0] | null>(null);
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const [step, setStep] = useState<"contact" | "amount" | "confirm" | "success">("contact");
+
+  const numAmount = parseFloat(amount) || 0;
+
+  if (step === "success" && contact) {
+    return (
+      <div className="min-h-[100dvh] flex flex-col items-center justify-center px-4 text-center bg-gradient-to-b from-orange-50 to-white">
+        <div className="text-7xl mb-6 animate-bounce">🤝</div>
+        <h2 className="text-3xl font-black text-gray-900 mb-2">{tr(t, "successP2P")}</h2>
+        <p className="text-gray-500 mb-1">{contact.flag} {contact.name} · NT${numAmount.toLocaleString()}</p>
+        <p className="text-orange-500 font-semibold text-sm mb-8">{tr(t, "instantArrival")} · {tr(t, "free")}</p>
+        <button type="button" onClick={onDone.bind(null, {
+          id: `t-${Date.now()}`, type: "p2p",
+          date: new Date().toISOString().slice(0, 10),
+          sentTWD: numAmount, recipientName: contact.name,
+          recipientFlag: contact.flag, note: note || undefined, status: "completed",
+        })} className="bg-orange-500 text-white font-bold rounded-2xl px-10 py-4 shadow-lg">
+          {tr(t, "home")} ←
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div className="pb-24 px-3 xs:px-4 pt-4 xs:pt-6 max-w-sm mx-auto w-full min-w-0">
-      <h2 className="text-xl xs:text-2xl font-black text-gray-900 mb-3 xs:mb-4">{tr(t, "history")}</h2>
-      <div className="flex gap-2 mb-4 xs:mb-5">
-        {(["remittance", "salary"] as const).map((t2) => (
+    <div className="min-h-[100dvh] bg-gray-50">
+      {/* Header */}
+      <div className="bg-white border-b border-gray-100 px-4 py-4 flex items-center gap-3 max-w-sm mx-auto">
+        <button type="button" onClick={onBack} className="text-gray-500 text-xl">←</button>
+        <h2 className="font-black text-gray-900 text-lg">{tr(t, "transferFriend")}</h2>
+      </div>
+
+      <div className="px-4 pt-5 pb-32 max-w-sm mx-auto space-y-4">
+        {/* Step 1: Contact */}
+        <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+          <p className="text-gray-500 text-xs font-semibold mb-3">{tr(t, "selectContact")}</p>
+          <div className="space-y-2">
+            {MOCK_CONTACTS.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => { setContact(c); setStep("amount"); }}
+                className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 transition-all ${
+                  contact?.id === c.id ? "border-orange-400 bg-orange-50" : "border-gray-100 hover:border-orange-200"
+                }`}
+              >
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-400 to-pink-500 flex items-center justify-center text-white font-bold text-lg shrink-0">
+                  {c.flag}
+                </div>
+                <div className="text-left">
+                  <p className="font-bold text-gray-800 text-sm">{c.name}</p>
+                  <p className="text-gray-400 text-xs">····{c.last4}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Step 2: Amount + Note */}
+        {contact && (
+          <>
+            <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+              <p className="text-gray-500 text-xs font-semibold mb-3">{tr(t, "amount")}</p>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400 font-bold text-xl">NT$</span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="0"
+                  className="text-3xl font-black text-orange-600 w-full outline-none placeholder-gray-200 bg-transparent"
+                />
+              </div>
+              <div className="grid grid-cols-4 gap-2 mt-3">
+                {[500, 1000, 2000, 5000].map((v) => (
+                  <button key={v} type="button" onClick={() => setAmount(String(v))}
+                    className="text-xs font-semibold bg-orange-50 text-orange-600 rounded-xl py-2 hover:bg-orange-100 active:scale-[0.98] transition-all">
+                    {v.toLocaleString()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
+              <p className="text-gray-500 text-xs font-semibold mb-2">{tr(t, "note")}</p>
+              <input
+                type="text"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder={tr(t, "notePlaceholder")}
+                className="w-full text-sm text-gray-800 outline-none placeholder-gray-300 bg-transparent"
+              />
+            </div>
+
+            {numAmount > 0 && (
+              <div className="bg-orange-50 rounded-2xl p-4 border border-orange-100 flex justify-between items-center">
+                <div>
+                  <p className="text-orange-600 font-semibold text-sm">{tr(t, "free")}</p>
+                  <p className="text-orange-400 text-xs">{tr(t, "instantArrival")}</p>
+                </div>
+                <div className="text-right">
+                  <p className="font-black text-orange-600 text-xl">NT${numAmount.toLocaleString()}</p>
+                  <p className="text-orange-400 text-xs">TWD → TWD</p>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Sticky CTA */}
+      {contact && (
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 p-4 max-w-sm mx-auto">
           <button
-            key={t2}
             type="button"
-            onClick={() => setTab(t2)}
-            className={`flex-1 py-2 xs:py-2.5 rounded-xl text-[11px] xs:text-sm font-bold transition-all leading-tight ${
-              tab === t2 ? "bg-blue-700 text-white shadow" : "bg-gray-100 text-gray-500"
+            onClick={() => numAmount > 0 && setStep("confirm")}
+            disabled={numAmount <= 0}
+            className={`w-full py-4 rounded-2xl font-black text-lg shadow-lg transition-all active:scale-[0.98] ${
+              numAmount > 0 ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-300 cursor-not-allowed"
             }`}
           >
-            {t2 === "remittance" ? tr(t, "remittanceHistory") : tr(t, "salaryHistory")}
+            {tr(t, "confirmSend")} →
+          </button>
+        </div>
+      )}
+
+      {/* Confirm Modal */}
+      {step === "confirm" && contact && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+          <div role="dialog" aria-modal="true" className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl">
+            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-5" />
+            <h3 className="text-xl font-black text-gray-900 mb-4 text-center">{tr(t, "confirmSend")}</h3>
+            <div className="space-y-3 mb-6">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">{tr(t, "selectContact")}</span>
+                <span className="font-bold">{contact.flag} {contact.name}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">{tr(t, "confirmModalSentLabel")}</span>
+                <span className="font-bold">NT${numAmount.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">{tr(t, "fee")}</span>
+                <span className="font-bold text-emerald-600">{tr(t, "free")}</span>
+              </div>
+              {note && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">{tr(t, "note")}</span>
+                  <span className="font-bold">{note}</span>
+                </div>
+              )}
+            </div>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setStep("amount")}
+                className="flex-1 py-3 rounded-2xl border-2 border-gray-200 text-gray-600 font-bold text-sm">
+                {tr(t, "back")}
+              </button>
+              <button type="button" onClick={() => setStep("success")}
+                className="flex-1 py-3 rounded-2xl bg-orange-500 text-white font-bold shadow-lg text-sm">
+                ✓ {tr(t, "confirmSend")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── HistoryPage ──────────────────────────────────────────────────────────────
+
+type HistoryTab = "all" | "remittance" | "p2p" | "salary";
+
+function HistoryPage({ t, transactions }: { t: Record<string, string>; transactions: TransactionRecord[] }) {
+  const [tab, setTab] = useState<HistoryTab>("all");
+
+  const tabs: { id: HistoryTab; label: string }[] = [
+    { id: "all",        label: tr(t, "tabAll") },
+    { id: "remittance", label: tr(t, "tabRemittance") },
+    { id: "p2p",        label: tr(t, "tabTransfer") },
+    { id: "salary",     label: tr(t, "tabSalary") },
+  ];
+
+  const filtered =
+    tab === "all"        ? transactions :
+    tab === "remittance" ? transactions.filter((r) => r.type === "remittance") :
+    tab === "p2p"        ? transactions.filter((r) => r.type === "p2p") :
+    [];
+
+  return (
+    <div className="pb-24 px-4 pt-5 max-w-sm mx-auto w-full">
+      <h2 className="text-2xl font-black text-gray-900 mb-4">{tr(t, "history")}</h2>
+
+      {/* Filter Tabs */}
+      <div className="flex gap-1.5 mb-5 overflow-x-auto pb-1 scrollbar-hide">
+        {tabs.map((tb) => (
+          <button
+            key={tb.id}
+            type="button"
+            onClick={() => setTab(tb.id)}
+            className={`flex-shrink-0 py-2 px-3 rounded-xl text-xs font-bold transition-all ${
+              tab === tb.id ? "bg-blue-700 text-white shadow" : "bg-gray-100 text-gray-500"
+            }`}
+          >
+            {tb.label}
           </button>
         ))}
       </div>
 
-      {tab === "remittance" && (
-        <div className="space-y-2.5 xs:space-y-3">
-          {remittances.map((r) => (
-            <div key={r.id} className="bg-white rounded-2xl px-3 py-3 xs:px-4 xs:py-4 border border-gray-100 shadow-sm">
-              <div className="flex items-start justify-between gap-2 mb-1">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-lg xs:text-xl shrink-0">{r.flag}</span>
-                  <div className="min-w-0">
-                    <p className="font-bold text-gray-800 text-xs xs:text-sm">
-                      NT${r.sentTWD.toLocaleString()}
-                    </p>
-                    <p className="text-gray-400 text-[10px] xs:text-xs">{r.date}</p>
-                  </div>
-                </div>
-                <span
-                  className={`text-[10px] xs:text-xs font-bold px-2 py-1 xs:px-3 rounded-full shrink-0 whitespace-nowrap ${
-                    r.status === "completed"
-                      ? "bg-emerald-100 text-emerald-700"
-                      : r.status === "processing"
-                        ? "bg-amber-100 text-amber-700"
-                        : "bg-red-100 text-red-700"
-                  }`}
-                >
-                  {r.status === "completed"
-                    ? tr(t, "status_completed")
-                    : r.status === "processing"
-                      ? tr(t, "status_processing")
-                      : tr(t, "status_failed")}
-                </span>
-              </div>
-              <div className="mt-2 bg-gray-50 rounded-xl px-3 py-2 flex justify-between gap-2">
-                <span className="text-gray-500 text-[10px] xs:text-xs shrink-0">{tr(t, "youReceive")}</span>
-                <span className="font-bold text-gray-700 text-[10px] xs:text-xs text-right break-all">
-                  {r.received.toLocaleString()} {r.currency}
-                </span>
-              </div>
-            </div>
+      {/* Transaction List */}
+      {tab !== "salary" && (
+        <div className="space-y-2.5">
+          {filtered.length === 0 && (
+            <p className="text-gray-400 text-sm text-center py-8">{tr(t, "noTransactions")}</p>
+          )}
+          {filtered.map((r) => (
+            <TransactionRow key={r.id} tx={r} t={t} />
           ))}
         </div>
       )}
 
+      {/* Salary Tab */}
       {tab === "salary" && (
-        <div className="space-y-2.5 xs:space-y-3">
-          {mockSalaries.map((s) => (
-            <div
-              key={s.id}
-              className="bg-white rounded-2xl px-3 py-3 xs:px-4 xs:py-4 border border-gray-100 shadow-sm flex justify-between items-center gap-2"
-            >
-              <div className="flex items-center gap-2 xs:gap-3 min-w-0">
-                <div className="w-9 h-9 xs:w-10 xs:h-10 rounded-xl bg-blue-100 flex items-center justify-center text-base shrink-0">
-                  💼
-                </div>
-                <div className="min-w-0">
-                  <p className="font-bold text-gray-800 text-xs xs:text-sm">NT${s.amount.toLocaleString()}</p>
-                  <p className="text-gray-400 text-[10px] xs:text-xs">{s.date}</p>
+        <div className="space-y-2.5">
+          {MOCK_SALARIES.map((s) => (
+            <div key={s.id} className="bg-white rounded-2xl px-4 py-3 border border-gray-100 shadow-sm flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-blue-100 flex items-center justify-center text-base shrink-0">💼</div>
+                <div>
+                  <p className="font-bold text-gray-800 text-sm">NT${s.amount.toLocaleString()}</p>
+                  <p className="text-gray-400 text-xs">{s.date}</p>
                 </div>
               </div>
-              <span
-                className={`text-[10px] xs:text-xs font-bold px-2 py-1 xs:px-3 rounded-full shrink-0 whitespace-nowrap ${
-                  s.status === "paid" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
-                }`}
-              >
+              <span className={`text-xs font-bold px-2.5 py-1 rounded-full whitespace-nowrap ${
+                s.status === "paid" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+              }`}>
                 {s.status === "paid" ? tr(t, "status_paid") : tr(t, "status_pending")}
               </span>
             </div>
@@ -560,13 +779,17 @@ function HistoryPage({ t, remittances }: { t: Record<string, string>; remittance
   );
 }
 
+// ─── Screen Loader ────────────────────────────────────────────────────────────
+
 function ScreenLoader() {
   return (
-    <div className="min-h-[100dvh] flex items-center justify-center bg-gray-50 text-gray-500 text-sm">
+    <div className="min-h-[100dvh] flex items-center justify-center bg-gray-50 text-gray-400 text-sm">
       …
     </div>
   );
 }
+
+// ─── Main App ─────────────────────────────────────────────────────────────────
 
 export default function MigrantPayApp() {
   const [lang, setLang] = useState<Lang | null>(() => {
@@ -574,10 +797,10 @@ export default function MigrantPayApp() {
     if (saved && LANGUAGES.some((l) => l.code === saved)) return saved;
     return null;
   });
-  const [page, setPage] = useState("home");
+  const [page, setPage] = useState<Page>("home");
   const [t, setT] = useState<Record<string, string> | null>(null);
   const [previewT, setPreviewT] = useState<Record<string, string> | null>(null);
-  const [remittances, setRemittances] = useState<RemittanceRecord[]>([]);
+  const [transactions, setTransactions] = useState<TransactionRecord[]>(INITIAL_TRANSACTIONS);
 
   const loadForLang = useCallback(async (l: Lang) => {
     setT(null);
@@ -587,52 +810,58 @@ export default function MigrantPayApp() {
 
   useEffect(() => {
     if (!lang) {
-      const previewLang = guessBrowserLang();
-      loadLocale(previewLang).then(setPreviewT).catch(() => setPreviewT(null));
+      loadLocale(guessBrowserLang()).then(setPreviewT).catch(() => setPreviewT(null));
       return;
     }
-    loadForLang(lang).catch(() => {
-      setT({});
-    });
-    setRemittances(MOCK_REMITTANCES_BY_LANG[lang]);
+    loadForLang(lang).catch(() => setT({}));
   }, [lang, loadForLang]);
 
   const handleLangSelect = (l: Lang) => {
     setLang(l);
-    setRemittances(MOCK_REMITTANCES_BY_LANG[l]);
     localStorage.setItem("kiripay_lang", l);
   };
 
-  const handleAddRemittance = (r: RemittanceRecord) => {
-    setRemittances((prev) => [r, ...prev]);
+  const addTransaction = (record: TransactionRecord) => {
+    setTransactions((prev) => [record, ...prev]);
+    setPage("history");
   };
 
-  const langInfo = LANGUAGES.find((l) => l.code === lang) ?? LANGUAGES[0];
+  if (!lang) return <LanguageSelector onSelect={handleLangSelect} previewT={previewT} />;
+  if (!t) return <ScreenLoader />;
 
-  if (!lang) {
-    return <LanguageSelector onSelect={handleLangSelect} previewT={previewT} />;
+  // Full-screen send flows (no nav bar)
+  if (page === "remittance") {
+    return (
+      <RemittancePage
+        t={t}
+        onBack={() => setPage("home")}
+        onDone={(record) => addTransaction(record)}
+      />
+    );
   }
-
-  if (!t) {
-    return <ScreenLoader />;
+  if (page === "p2p") {
+    return (
+      <P2PPage
+        t={t}
+        onBack={() => setPage("home")}
+        onDone={(record) => addTransaction(record)}
+      />
+    );
   }
 
   return (
     <div className="min-h-[100dvh] bg-gray-50 font-sans text-gray-900">
       <div className="max-w-sm mx-auto relative w-full min-w-0 min-h-[100dvh]">
-        <div className="h-2 bg-white shrink-0 min-h-[env(safe-area-inset-top,0px)]" />
-
-        {page === "home" && <HomePage t={t} langInfo={langInfo} remittances={remittances} />}
-        {page === "send" && (
-          <SendPage
+        <div className="h-[env(safe-area-inset-top,0px)] bg-white" />
+        {page === "home" && (
+          <HomePage
             t={t}
-            langInfo={langInfo}
-            onSuccess={() => setPage("history")}
-            onAddRemittance={handleAddRemittance}
+            transactions={transactions}
+            onGoRemittance={() => setPage("remittance")}
+            onGoP2P={() => setPage("p2p")}
           />
         )}
-        {page === "history" && <HistoryPage t={t} remittances={remittances} />}
-
+        {page === "history" && <HistoryPage t={t} transactions={transactions} />}
         <NavBar t={t} page={page} setPage={setPage} />
       </div>
     </div>
