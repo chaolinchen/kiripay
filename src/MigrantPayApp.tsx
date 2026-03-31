@@ -55,6 +55,42 @@ const COUNTRIES = [
   { code: "th",  name: "Thailand",    flag: "🇹🇭", currency: "THB", rate: 1.12  },
 ];
 
+const BANKS_BY_COUNTRY: Record<string, { name: string; swift: string }[]> = {
+  id:  [
+    { name: "BCA",          swift: "CENAIDJA" },
+    { name: "BRI",          swift: "BRINIDJA" },
+    { name: "Bank Mandiri", swift: "BMRIIDJA" },
+    { name: "BNI",          swift: "BNINIDJA" },
+  ],
+  fil: [
+    { name: "BDO",       swift: "BNORPHMM" },
+    { name: "BPI",       swift: "BOPIPHMM" },
+    { name: "Metrobank", swift: "MBTCPHMM" },
+    { name: "LandBank",  swift: "TLBPPHMM" },
+  ],
+  vi: [
+    { name: "Vietcombank", swift: "BFTVVNVX" },
+    { name: "BIDV",        swift: "BIDVVNVX" },
+    { name: "Techcombank", swift: "VTCBVNVX" },
+    { name: "Agribank",    swift: "VBAAVNVX" },
+  ],
+  th: [
+    { name: "Bangkok Bank", swift: "BKKBTHBK" },
+    { name: "KBank",        swift: "KASITHBK" },
+    { name: "SCB",          swift: "SICOTHBK" },
+    { name: "Krungsri",     swift: "AYUDTHBK" },
+  ],
+};
+
+interface RecipientInfo {
+  name: string;
+  bankName: string;
+  swift: string;
+  accountNumber: string;
+  reason: string;
+  phone: string;
+}
+
 const MOCK_CONTACTS = [
   { id: "c1", name: "Siti",    flag: "🇮🇩", last4: "8821" },
   { id: "c2", name: "Maria",   flag: "🇵🇭", last4: "4502" },
@@ -355,13 +391,32 @@ function RemittancePage({
   onBack: () => void;
   onDone: (record: RemittanceRecord) => void;
 }) {
-  const [step, setStep] = useState<"country" | "amount" | "confirm" | "success">("country");
+  const [step, setStep] = useState<"country" | "recipient" | "amount" | "confirm" | "success">("country");
   const [country, setCountry] = useState<(typeof COUNTRIES)[0] | null>(null);
+  const [recipient, setRecipient] = useState<RecipientInfo>({
+    name: "", bankName: "", swift: "", accountNumber: "", reason: "", phone: "",
+  });
   const [amount, setAmount] = useState("");
 
   const numAmount = parseFloat(amount) || 0;
   const fee = calcFee(numAmount);
   const received = country ? Math.round((numAmount - fee) * country.rate) : 0;
+
+  const banks = country ? (BANKS_BY_COUNTRY[country.code] ?? []) : [];
+  const needsReason = country?.code === "fil" || country?.code === "th";
+  const needsPhone = country?.code === "th";
+
+  const recipientValid =
+    recipient.name.trim() !== "" &&
+    recipient.bankName !== "" &&
+    recipient.accountNumber.trim() !== "" &&
+    (!needsReason || recipient.reason !== "") &&
+    (!needsPhone || recipient.phone.trim() !== "");
+
+  const handleBankSelect = (bankName: string) => {
+    const bank = banks.find((b) => b.name === bankName);
+    setRecipient((prev) => ({ ...prev, bankName, swift: bank?.swift ?? "" }));
+  };
 
   if (step === "success" && country) {
     return (
@@ -369,6 +424,7 @@ function RemittancePage({
         <div className="text-7xl mb-6 animate-bounce">✅</div>
         <h2 className="text-3xl font-black text-gray-900 mb-2">{tr(t, "success")}</h2>
         <p className="text-gray-500 mb-1">NT${numAmount.toLocaleString()} → {received.toLocaleString()} {country.currency}</p>
+        <p className="text-gray-400 text-sm mb-1">{recipient.name} · {recipient.bankName}</p>
         <p className="text-emerald-600 font-semibold text-sm mb-8">{tr(t, "estimatedArrival")}: {tr(t, "days")}</p>
         <button type="button" onClick={onDone.bind(null, {
           id: `t-${Date.now()}`, type: "remittance",
@@ -386,7 +442,16 @@ function RemittancePage({
     <div className="min-h-[100dvh] bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-100 px-4 py-4 flex items-center gap-3 max-w-sm mx-auto">
-        <button type="button" onClick={onBack} className="text-gray-500 text-xl">←</button>
+        <button
+          type="button"
+          onClick={() => {
+            if (step === "country") onBack();
+            else if (step === "recipient") setStep("country");
+            else if (step === "amount") setStep("recipient");
+            else if (step === "confirm") setStep("amount");
+          }}
+          className="text-gray-500 text-xl"
+        >←</button>
         <h2 className="font-black text-gray-900 text-lg">{tr(t, "remitHome")}</h2>
       </div>
 
@@ -399,7 +464,11 @@ function RemittancePage({
               <button
                 key={c.code}
                 type="button"
-                onClick={() => { setCountry(c); setStep("amount"); }}
+                onClick={() => {
+                  setCountry(c);
+                  setRecipient({ name: "", bankName: "", swift: "", accountNumber: "", reason: "", phone: "" });
+                  setStep("recipient");
+                }}
                 className={`flex items-center gap-2 p-3 rounded-xl border-2 transition-all ${
                   country?.code === c.code
                     ? "border-blue-600 bg-blue-50"
@@ -416,8 +485,99 @@ function RemittancePage({
           </div>
         </div>
 
-        {/* Step 2: Amount (shown after country selected) */}
-        {country && (
+        {/* Step 2: Recipient Info */}
+        {(step === "recipient" || step === "amount" || step === "confirm") && country && (
+          <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm space-y-3">
+            <p className="text-gray-500 text-xs font-semibold">{tr(t, "recipientInfo")}</p>
+
+            {/* Recipient Name */}
+            <div>
+              <p className="text-gray-400 text-[11px] mb-1">{tr(t, "recipientName")}</p>
+              <input
+                type="text"
+                value={recipient.name}
+                onChange={(e) => setRecipient((prev) => ({ ...prev, name: e.target.value }))}
+                placeholder={tr(t, "recipientNamePlaceholder")}
+                disabled={step !== "recipient"}
+                className="w-full text-sm text-gray-800 border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-blue-400 placeholder-gray-300 disabled:bg-gray-50 disabled:text-gray-500"
+              />
+            </div>
+
+            {/* Bank Name Dropdown */}
+            <div>
+              <p className="text-gray-400 text-[11px] mb-1">{tr(t, "bankName")}</p>
+              <select
+                value={recipient.bankName}
+                onChange={(e) => handleBankSelect(e.target.value)}
+                disabled={step !== "recipient"}
+                className="w-full text-sm text-gray-800 border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-blue-400 bg-white disabled:bg-gray-50 disabled:text-gray-500"
+              >
+                <option value="">{tr(t, "bankNamePlaceholder")}</option>
+                {banks.map((b) => (
+                  <option key={b.swift} value={b.name}>{b.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* SWIFT (auto-filled, read-only) */}
+            {recipient.swift && (
+              <div className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2">
+                <span className="text-gray-400 text-[11px]">{tr(t, "swiftCode")}:</span>
+                <span className="text-gray-700 text-xs font-mono font-bold">{recipient.swift}</span>
+              </div>
+            )}
+
+            {/* Account Number */}
+            <div>
+              <p className="text-gray-400 text-[11px] mb-1">{tr(t, "accountNumber")}</p>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={recipient.accountNumber}
+                onChange={(e) => setRecipient((prev) => ({ ...prev, accountNumber: e.target.value }))}
+                placeholder={tr(t, "accountNumberPlaceholder")}
+                disabled={step !== "recipient"}
+                className="w-full text-sm text-gray-800 border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-blue-400 font-mono placeholder-gray-300 disabled:bg-gray-50 disabled:text-gray-500"
+              />
+            </div>
+
+            {/* Remittance Reason (Philippines + Thailand) */}
+            {needsReason && (
+              <div>
+                <p className="text-gray-400 text-[11px] mb-1">{tr(t, "remittanceReason")}</p>
+                <select
+                  value={recipient.reason}
+                  onChange={(e) => setRecipient((prev) => ({ ...prev, reason: e.target.value }))}
+                  disabled={step !== "recipient"}
+                  className="w-full text-sm text-gray-800 border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-blue-400 bg-white disabled:bg-gray-50 disabled:text-gray-500"
+                >
+                  <option value="">—</option>
+                  {["reason_family", "reason_salary", "reason_living", "reason_other"].map((k) => (
+                    <option key={k} value={k}>{tr(t, k)}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Phone (Thailand only) */}
+            {needsPhone && (
+              <div>
+                <p className="text-gray-400 text-[11px] mb-1">{tr(t, "phone")}</p>
+                <input
+                  type="tel"
+                  value={recipient.phone}
+                  onChange={(e) => setRecipient((prev) => ({ ...prev, phone: e.target.value }))}
+                  placeholder={tr(t, "phonePlaceholder")}
+                  disabled={step !== "recipient"}
+                  className="w-full text-sm text-gray-800 border border-gray-200 rounded-xl px-3 py-2.5 outline-none focus:border-blue-400 placeholder-gray-300 disabled:bg-gray-50 disabled:text-gray-500"
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Step 3: Amount (shown after recipient filled) */}
+        {(step === "amount" || step === "confirm") && country && (
           <>
             <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
               <p className="text-gray-500 text-xs font-semibold mb-3">{tr(t, "amount")}</p>
@@ -467,7 +627,22 @@ function RemittancePage({
       </div>
 
       {/* Sticky CTA */}
-      {country && (
+      {step === "recipient" && country && (
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 p-4 max-w-sm mx-auto">
+          <button
+            type="button"
+            onClick={() => recipientValid && setStep("amount")}
+            disabled={!recipientValid}
+            className={`w-full py-4 rounded-2xl font-black text-lg shadow-lg transition-all active:scale-[0.98] ${
+              recipientValid ? "bg-blue-700 text-white" : "bg-gray-100 text-gray-300 cursor-not-allowed"
+            }`}
+          >
+            {tr(t, "nextStep")} →
+          </button>
+        </div>
+      )}
+
+      {step === "amount" && country && (
         <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 p-4 max-w-sm mx-auto">
           <button
             type="button"
@@ -490,6 +665,24 @@ function RemittancePage({
             <h3 className="text-xl font-black text-gray-900 mb-4 text-center">{tr(t, "confirmSend")}</h3>
             <div className="space-y-3 mb-6">
               <div className="flex justify-between text-sm">
+                <span className="text-gray-500">{tr(t, "recipientName")}</span>
+                <span className="font-bold text-right max-w-[55%] break-words">{recipient.name}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">{tr(t, "bankName")}</span>
+                <span className="font-bold">{recipient.bankName}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">{tr(t, "accountNumber")}</span>
+                <span className="font-mono font-bold text-sm">{recipient.accountNumber}</span>
+              </div>
+              {needsReason && recipient.reason && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">{tr(t, "remittanceReason")}</span>
+                  <span className="font-bold">{tr(t, recipient.reason)}</span>
+                </div>
+              )}
+              <div className="border-t border-gray-100 pt-3 flex justify-between text-sm">
                 <span className="text-gray-500">{tr(t, "confirmModalSentLabel")}</span>
                 <span className="font-bold">NT${numAmount.toLocaleString()}</span>
               </div>
